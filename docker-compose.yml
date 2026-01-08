@@ -1,0 +1,102 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: jira-feedback-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-jira_feedback}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: ${DB_NAME:-jira_feedback}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Use 5433 externally to avoid conflict with local PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-jira_feedback}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # Redis (for background tasks and WebSocket)
+  redis:
+    image: redis:7-alpine
+    container_name: jira-feedback-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jira-feedback-backend
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${DB_USER:-jira_feedback}:${DB_PASSWORD:-changeme}@db:5432/${DB_NAME:-jira_feedback}
+      REDIS_URL: redis://redis:6379/0
+
+      # JWT
+      SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
+
+      # Jira (can be overridden per-user in the app)
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JQL: ${JQL:-}
+
+      # LLM
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      MODEL: ${MODEL:-gpt-4o-mini}
+
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+
+      # Encryption key for storing credentials
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jira-feedback-frontend
+    environment:
+      # Server-side API URL (used by API route handler proxy)
+      API_URL: http://backend:8000
+      # WebSocket URL for client-side connections
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+
+networks:
+  app-network:
+    driver: bridge
