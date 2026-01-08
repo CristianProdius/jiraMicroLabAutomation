@@ -5,11 +5,20 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import httpx
+from pydantic import ValidationError
 from rich.console import Console
 from rich.progress import track
 
 from .cache import FeedbackCache
 from .config import AppConfig
+from .exceptions import (
+    CacheError,
+    ConfigurationError,
+    JiraAPIError,
+    JiraFeedbackError,
+    PipelineError,
+)
 from .feedback_writer import FeedbackWriter, generate_summary_report
 from .jira_client import JiraClient
 from .pipeline import FeedbackPipeline
@@ -62,13 +71,13 @@ def main():
 
     args = parser.parse_args()
 
+    # Initialize resources to None for proper cleanup
+    cache: FeedbackCache | None = None
+    jira_client: JiraClient | None = None
+
     try:
         # Load configuration
-        if args.config:
-            import os
-            os.environ["ENV_FILE"] = args.config
-
-        config = AppConfig.from_env()
+        config = AppConfig.from_env(env_file=args.config)
         config.ensure_cache_dir()
 
         console.print(f"\n[bold cyan]DSPy Jira Feedback System[/bold cyan]\n")
@@ -86,7 +95,6 @@ def main():
             console.print(f"  Total issues commented: {stats['total_issues']}")
             console.print(f"  Total comments posted: {stats['total_comments']}")
             console.print(f"  Last activity: {stats['last_activity']}\n")
-            cache.close()
             return 0
 
         # Handle --clear-cache
@@ -110,8 +118,6 @@ def main():
 
         if not issues:
             console.print("[yellow]No issues found matching criteria[/yellow]")
-            jira_client.close()
-            cache.close()
             return 0
 
         # Filter issues that need feedback (check cache)
@@ -123,8 +129,6 @@ def main():
 
         if not issues_to_process:
             console.print("[green]All issues are up to date![/green]")
-            jira_client.close()
-            cache.close()
             return 0
 
         console.print(f"\n[bold]Processing {len(issues_to_process)} issues...[/bold]\n")
@@ -158,8 +162,11 @@ def main():
                 if feedback.score < 50:
                     critical_failures.append(issue.key)
 
-            except Exception as e:
+            except (JiraAPIError, PipelineError) as e:
                 console.log(f"[red]Failed to process {issue.key}: {e}[/red]")
+                failed_count += 1
+            except httpx.HTTPError as e:
+                console.log(f"[red]HTTP error processing {issue.key}: {e}[/red]")
                 failed_count += 1
 
         # Generate summary
@@ -182,10 +189,6 @@ def main():
             if config.slack_webhook_url and not args.dry_run:
                 feedback_writer.send_slack_notification(all_feedbacks, limit=10)
 
-        # Cleanup
-        jira_client.close()
-        cache.close()
-
         # Exit with non-zero if critical failures
         if critical_failures:
             console.print(f"\n[yellow]⚠️  Critical issues found: {', '.join(critical_failures)}[/yellow]")
@@ -197,11 +200,44 @@ def main():
         console.print("\n[yellow]Interrupted by user[/yellow]")
         return 130
 
+    except ValidationError as e:
+        console.print(f"\n[bold red]Configuration Error:[/bold red] {e}")
+        return 1
+
+    except ConfigurationError as e:
+        console.print(f"\n[bold red]Configuration Error:[/bold red] {e}")
+        return 1
+
+    except CacheError as e:
+        console.print(f"\n[bold red]Cache Error:[/bold red] {e}")
+        return 1
+
+    except JiraAPIError as e:
+        console.print(f"\n[bold red]Jira API Error:[/bold red] {e}")
+        if e.status_code:
+            console.print(f"  Status code: {e.status_code}")
+        return 1
+
+    except JiraFeedbackError as e:
+        console.print(f"\n[bold red]Application Error:[/bold red] {e}")
+        return 1
+
+    except httpx.HTTPError as e:
+        console.print(f"\n[bold red]HTTP Error:[/bold red] {e}")
+        return 1
+
     except Exception as e:
-        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        console.print(f"\n[bold red]Unexpected Error:[/bold red] {e}")
         import traceback
         console.print(traceback.format_exc())
         return 1
+
+    finally:
+        # Ensure resources are always cleaned up
+        if jira_client:
+            jira_client.close()
+        if cache:
+            cache.close()
 
 
 if __name__ == "__main__":

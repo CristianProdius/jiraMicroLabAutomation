@@ -1,5 +1,6 @@
 """Feedback formatting and delivery."""
 
+import fcntl
 import json
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ import httpx
 from rich.console import Console
 from rich.markdown import Markdown
 
+from .exceptions import JiraAPIError
 from .jira_client import JiraClient
 from .pipeline import Feedback
 
@@ -64,12 +66,12 @@ class FeedbackWriter:
             console.log(f"[green]✓ Comment posted to {feedback.issue_key}[/green]")
             return True
 
-        except Exception as e:
+        except (JiraAPIError, httpx.HTTPError) as e:
             console.log(f"[red]Failed to post comment: {e}[/red]")
             return False
 
     def _append_to_report(self, feedback: Feedback) -> bool:
-        """Append feedback to markdown report file."""
+        """Append feedback to markdown report file with file locking for concurrency safety."""
         reports_dir = Path("reports")
         reports_dir.mkdir(exist_ok=True)
 
@@ -78,26 +80,36 @@ class FeedbackWriter:
         report_path = reports_dir / f"{timestamp}_report.md"
 
         try:
-            # Read existing or create new
-            if report_path.exists():
-                with open(report_path, "r") as f:
+            # Use exclusive file locking to prevent race conditions
+            with open(report_path, "a+", encoding="utf-8") as f:
+                # Acquire exclusive lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    # Move to beginning to read existing content
+                    f.seek(0)
                     content = f.read()
-            else:
-                content = f"# Jira Feedback Report\n\nGenerated: {datetime.now().isoformat()}\n\n"
-                content += "---\n\n"
 
-            # Append this feedback
-            content += self._format_as_markdown(feedback)
-            content += "\n\n---\n\n"
+                    # If file is empty, add header
+                    if not content:
+                        content = f"# Jira Feedback Report\n\nGenerated: {datetime.now().isoformat()}\n\n"
+                        content += "---\n\n"
 
-            # Write back
-            with open(report_path, "w") as f:
-                f.write(content)
+                    # Append this feedback
+                    content += self._format_as_markdown(feedback)
+                    content += "\n\n---\n\n"
+
+                    # Truncate and write
+                    f.seek(0)
+                    f.truncate()
+                    f.write(content)
+                finally:
+                    # Release lock
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
             console.log(f"[green]✓ Appended to report: {report_path}[/green]")
             return True
 
-        except Exception as e:
+        except (OSError, IOError) as e:
             console.log(f"[red]Failed to write report: {e}[/red]")
             return False
 
@@ -212,7 +224,7 @@ class FeedbackWriter:
             else:
                 console.log(f"[yellow]Slack notification failed: {response.status_code}[/yellow]")
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             console.log(f"[yellow]Failed to send Slack notification: {e}[/yellow]")
 
 
@@ -270,7 +282,7 @@ def generate_summary_report(feedbacks: list[Feedback], output_path: Optional[Pat
     # Write to file if path provided
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(report_text)
         console.log(f"[green]Summary report written to {output_path}[/green]")
 

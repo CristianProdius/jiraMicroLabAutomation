@@ -15,7 +15,7 @@ class RubricResult:
     rule_id: str
     score: float  # 0.0 to 1.0
     message: str
-    suggestion: str
+    suggestion: Optional[str] = None
     weight: float = 1.0
 
 
@@ -81,19 +81,18 @@ class RubricEvaluator:
             suggestion = "Rewrite title to be concise, actionable, and specific (e.g., 'Add user authentication to login page')"
         else:
             message = "Title is clear and actionable"
-            suggestion = ""
+            suggestion = None
 
         return RubricResult(
             rule_id="title_clarity",
             score=score,
             message=message,
             suggestion=suggestion,
-            weight=1.0
         )
 
     def _check_description_length(self, issue: JiraIssue) -> RubricResult:
         """Check if description meets minimum word count."""
-        description = issue.description.strip()
+        description = (issue.description or "").strip()
         words = [w for w in description.split() if len(w) > 0]
         word_count = len(words)
 
@@ -110,19 +109,19 @@ class RubricEvaluator:
         else:
             score = 1.0
             message = f"Description length adequate: {word_count} words"
-            suggestion = ""
+            suggestion = None
 
         return RubricResult(
             rule_id="description_length",
             score=score,
             message=message,
             suggestion=suggestion,
-            weight=1.2
+            weight=1.2,
         )
 
     def _check_acceptance_criteria(self, issue: JiraIssue) -> RubricResult:
         """Check for presence of acceptance criteria."""
-        description = issue.description.lower()
+        description = (issue.description or "").lower()
 
         # Look for AC patterns
         ac_patterns = [
@@ -141,7 +140,7 @@ class RubricEvaluator:
             if has_ac:
                 score = 1.0
                 message = "Acceptance criteria present (optional)"
-                suggestion = ""
+                suggestion = None
             else:
                 score = 0.8
                 message = "No acceptance criteria (optional)"
@@ -150,7 +149,7 @@ class RubricEvaluator:
             if has_ac:
                 score = 1.0
                 message = "Acceptance criteria present"
-                suggestion = ""
+                suggestion = None
             else:
                 score = 0.0
                 message = "Acceptance criteria required but missing"
@@ -161,12 +160,12 @@ class RubricEvaluator:
             score=score,
             message=message,
             suggestion=suggestion,
-            weight=1.5
+            weight=1.5,
         )
 
     def _check_ambiguous_terms(self, issue: JiraIssue) -> RubricResult:
         """Check for ambiguous/vague terms."""
-        text = f"{issue.summary} {issue.description}".lower()
+        text = f"{issue.summary} {issue.description or ''}".lower()
         found_terms = []
 
         for term in self.config.ambiguous_terms:
@@ -176,7 +175,7 @@ class RubricEvaluator:
         if not found_terms:
             score = 1.0
             message = "No ambiguous terms detected"
-            suggestion = ""
+            suggestion = None
         else:
             # Deduct points based on number of ambiguous terms
             score = max(0.0, 1.0 - (len(found_terms) * 0.15))
@@ -188,7 +187,6 @@ class RubricEvaluator:
             score=score,
             message=message,
             suggestion=suggestion,
-            weight=1.0
         )
 
     def _check_estimate_present(self, issue: JiraIssue) -> RubricResult:
@@ -198,7 +196,7 @@ class RubricEvaluator:
         if estimate is not None and estimate > 0:
             score = 1.0
             message = f"Estimate present: {estimate}"
-            suggestion = ""
+            suggestion = None
         else:
             score = 0.5
             message = "No estimate provided"
@@ -209,7 +207,7 @@ class RubricEvaluator:
             score=score,
             message=message,
             suggestion=suggestion,
-            weight=0.8
+            weight=0.8,
         )
 
     def _check_labels(self, issue: JiraIssue) -> RubricResult:
@@ -221,7 +219,7 @@ class RubricEvaluator:
             if labels:
                 score = 1.0
                 message = f"Labels present: {', '.join(labels)}"
-                suggestion = ""
+                suggestion = None
             else:
                 score = 0.7
                 message = "No labels"
@@ -234,7 +232,7 @@ class RubricEvaluator:
             if labels and not invalid_labels:
                 score = 1.0
                 message = f"All labels valid: {', '.join(labels)}"
-                suggestion = ""
+                suggestion = None
             elif invalid_labels:
                 score = 0.5
                 message = f"Invalid labels: {', '.join(invalid_labels)}"
@@ -249,12 +247,12 @@ class RubricEvaluator:
             score=score,
             message=message,
             suggestion=suggestion,
-            weight=0.7
+            weight=0.7,
         )
 
     def _check_scope_clarity(self, issue: JiraIssue) -> RubricResult:
         """Check if scope is clearly defined."""
-        description = issue.description.lower()
+        description = (issue.description or "").lower()
 
         # Look for scope indicators
         scope_indicators = [
@@ -272,12 +270,10 @@ class RubricEvaluator:
         broad_words = ["everything", "all", "any", "complete", "total", "entire"]
         has_broad_words = any(word in description for word in broad_words)
 
-        score = 1.0
-
         if has_scope_info:
             score = 1.0
             message = "Scope information present"
-            suggestion = ""
+            suggestion = None
         elif has_broad_words:
             score = 0.4
             message = "Scope appears too broad"
@@ -292,7 +288,6 @@ class RubricEvaluator:
             score=score,
             message=message,
             suggestion=suggestion,
-            weight=1.0
         )
 
     def calculate_final_score(self, results: list[RubricResult]) -> tuple[float, dict]:

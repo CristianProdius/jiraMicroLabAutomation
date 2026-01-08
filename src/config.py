@@ -7,9 +7,6 @@ from typing import Literal, Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
-# Load environment variables
-load_dotenv()
-
 
 class JiraAuthConfig(BaseModel):
     """Jira authentication configuration."""
@@ -82,6 +79,7 @@ class AppConfig(BaseModel):
     # DSPy / LLM settings
     model: str = Field(default="gpt-4o-mini", description="LLM model to use")
     openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
 
     # Rubric
     rubric: RubricConfig = Field(default_factory=RubricConfig)
@@ -89,9 +87,23 @@ class AppConfig(BaseModel):
     # Optional integrations
     slack_webhook_url: Optional[str] = None
 
+    # Logging settings
+    log_level: str = Field(default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")
+    log_file: Optional[Path] = Field(default=None, description="Optional log file path")
+
     @classmethod
-    def from_env(cls) -> "AppConfig":
-        """Load configuration from environment variables."""
+    def from_env(cls, env_file: Optional[str] = None) -> "AppConfig":
+        """Load configuration from environment variables.
+
+        Args:
+            env_file: Optional path to .env file. If not provided, uses default .env
+        """
+        # Load environment variables from file
+        if env_file:
+            load_dotenv(env_file)
+        else:
+            load_dotenv()
+
         # Build Jira auth config
         jira_config = JiraAuthConfig(
             method=os.getenv("AUTH_METHOD", "pat"),
@@ -103,13 +115,19 @@ class AppConfig(BaseModel):
             oauth_token=os.getenv("JIRA_TOKEN"),
         )
 
-        # Build rubric config
-        rubric_config = RubricConfig(
-            min_description_words=int(os.getenv("MIN_DESCRIPTION_WORDS", "20")),
-            require_acceptance_criteria=os.getenv("REQUIRE_ACCEPTANCE_CRITERIA", "true").lower() == "true",
-            allowed_labels=os.getenv("ALLOWED_LABELS"),
-            ambiguous_terms=os.getenv("AMBIGUOUS_TERMS", "").split(",") if os.getenv("AMBIGUOUS_TERMS") else None,
-        )
+        # Build rubric config - only override ambiguous_terms if explicitly set
+        rubric_kwargs: dict = {
+            "min_description_words": int(os.getenv("MIN_DESCRIPTION_WORDS", "20")),
+            "require_acceptance_criteria": os.getenv("REQUIRE_ACCEPTANCE_CRITERIA", "true").lower() == "true",
+            "allowed_labels": os.getenv("ALLOWED_LABELS"),
+        }
+
+        # Only override default ambiguous_terms if explicitly set in environment
+        env_terms = os.getenv("AMBIGUOUS_TERMS")
+        if env_terms:
+            rubric_kwargs["ambiguous_terms"] = [t.strip() for t in env_terms.split(",") if t.strip()]
+
+        rubric_config = RubricConfig(**rubric_kwargs)
 
         config = cls(
             jira=jira_config,
@@ -118,8 +136,11 @@ class AppConfig(BaseModel):
             cache_db_path=Path(os.getenv("CACHE_DB_PATH", ".cache/jira_feedback.sqlite")),
             model=os.getenv("MODEL", "gpt-4o-mini"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
             rubric=rubric_config,
             slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL"),
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            log_file=Path(os.getenv("LOG_FILE")) if os.getenv("LOG_FILE") else None,
         )
 
         # Validate credentials

@@ -173,4 +173,6 @@ class TestJiraIssue:
         }
 
         issue = JiraIssue(adf_data)
-        assert "This is ADF text" in issue.description
+        # ADF extraction joins text nodes with space, so "This is " + "ADF text" = "This is  ADF text"
+        assert "ADF text" in issue.description
+        assert "This is" in issue.description

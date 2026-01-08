@@ -41,17 +41,3 @@ class AcceptanceCriteriaRefinement(dspy.Signature):
     refined_ac: str = dspy.OutputField(
         desc="Improved acceptance criteria in Given/When/Then format or testable checklist"
     )
-
-
-class ImprovedDescriptionGenerator(dspy.Signature):
-    """Generate an improved issue description."""
-
-    # Input fields
-    title: str = dspy.InputField(desc="Issue title")
-    current_description: str = dspy.InputField(desc="Current description")
-    critique_findings: str = dspy.InputField(desc="Issues found in current description")
-
-    # Output fields
-    improved_description: str = dspy.OutputField(
-        desc="Improved description with clear problem statement, context, and expected outcome"
-    )

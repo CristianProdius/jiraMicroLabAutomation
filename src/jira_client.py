@@ -2,7 +2,6 @@
 
 import base64
 import hashlib
-import json
 import time
 from typing import Any, Optional
 
@@ -10,8 +9,19 @@ import httpx
 from rich.console import Console
 
 from .config import JiraAuthConfig
+from .exceptions import (
+    JiraAPIError,
+    JiraAuthenticationError,
+    JiraNotFoundError,
+    JiraPermissionError,
+    JiraRateLimitError,
+)
 
 console = Console()
+
+# Input validation limits
+MAX_TITLE_LENGTH = 500
+MAX_DESCRIPTION_LENGTH = 50000
 
 
 class JiraIssue:
@@ -24,15 +34,21 @@ class JiraIssue:
 
     @property
     def summary(self) -> str:
-        return self.fields.get("summary", "")
+        title = self.fields.get("summary", "")
+        if len(title) > MAX_TITLE_LENGTH:
+            return title[:MAX_TITLE_LENGTH] + "..."
+        return title
 
     @property
     def description(self) -> str:
         desc = self.fields.get("description", "")
         # Handle Atlassian Document Format (ADF)
         if isinstance(desc, dict):
-            return self._extract_text_from_adf(desc)
-        return desc or ""
+            desc = self._extract_text_from_adf(desc)
+        desc = desc or ""
+        if len(desc) > MAX_DESCRIPTION_LENGTH:
+            return desc[:MAX_DESCRIPTION_LENGTH] + "..."
+        return desc
 
     @property
     def labels(self) -> list[str]:
@@ -56,12 +72,18 @@ class JiraIssue:
         # Try story points first (common custom fields)
         for field in ["customfield_10016", "customfield_10004", "customfield_10002"]:
             if field in self.fields and self.fields[field]:
-                return float(self.fields[field])
+                try:
+                    return float(self.fields[field])
+                except (ValueError, TypeError):
+                    continue  # Field exists but not numeric
 
         # Try timetracking
         timetracking = self.fields.get("timetracking", {})
-        if "originalEstimate" in timetracking:
-            return float(timetracking["originalEstimate"])
+        if timetracking and "originalEstimate" in timetracking:
+            try:
+                return float(timetracking["originalEstimate"])
+            except (ValueError, TypeError):
+                pass
 
         return None
 
@@ -108,19 +130,31 @@ class JiraClient:
     def __init__(self, auth_config: JiraAuthConfig):
         self.config = auth_config
         self.client = httpx.Client(timeout=30.0)
-        self._setup_auth()
+        self._setup_headers()
 
-    def _setup_auth(self):
-        """Configure authentication headers."""
+    def __enter__(self) -> "JiraClient":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Context manager exit - ensure client is closed."""
+        self.close()
+        return False
+
+    def _setup_headers(self) -> None:
+        """Configure common headers (not auth - auth is generated per-request)."""
+        self.client.headers["Accept"] = "application/json"
+        self.client.headers["Content-Type"] = "application/json"
+
+    def _get_auth_header(self) -> dict[str, str]:
+        """Generate auth header on-demand to avoid storing credentials in memory."""
         if self.config.method == "pat":
             credentials = f"{self.config.email}:{self.config.api_token}"
             encoded = base64.b64encode(credentials.encode()).decode()
-            self.client.headers["Authorization"] = f"Basic {encoded}"
+            return {"Authorization": f"Basic {encoded}"}
         elif self.config.method == "oauth":
-            self.client.headers["Authorization"] = f"Bearer {self.config.oauth_token}"
-
-        self.client.headers["Accept"] = "application/json"
-        self.client.headers["Content-Type"] = "application/json"
+            return {"Authorization": f"Bearer {self.config.oauth_token}"}
+        return {}
 
     def search_issues(
         self,
@@ -161,7 +195,7 @@ class JiraClient:
             console.log(f"[green]Found {len(issues_data)} issues[/green]")
             return [JiraIssue(data) for data in issues_data]
 
-        except Exception as e:
+        except (JiraAPIError, httpx.HTTPError) as e:
             console.log(f"[red]Failed to search issues: {e}[/red]")
             raise
 
@@ -179,7 +213,7 @@ class JiraClient:
             )
             return JiraIssue(response)
 
-        except Exception as e:
+        except (JiraAPIError, httpx.HTTPError) as e:
             console.log(f"[red]Failed to get issue {key}: {e}[/red]")
             raise
 
@@ -204,7 +238,7 @@ class JiraClient:
             console.log(f"[green]Comment added successfully[/green]")
             return response
 
-        except Exception as e:
+        except (JiraAPIError, httpx.HTTPError) as e:
             console.log(f"[red]Failed to add comment to {key}: {e}[/red]")
             raise
 
@@ -216,19 +250,45 @@ class JiraClient:
         **kwargs
     ) -> dict:
         """Make HTTP request with exponential backoff retry."""
+        # Add auth header for this request only (on-demand)
+        headers = kwargs.pop("headers", {})
+        headers.update(self._get_auth_header())
+
+        last_exception: Exception | None = None
+
         for attempt in range(max_retries):
             try:
-                response = self.client.request(method, url, **kwargs)
+                response = self.client.request(method, url, headers=headers, **kwargs)
                 response.raise_for_status()
                 return response.json()
 
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:  # Rate limited
-                    wait_time = 2 ** attempt
-                    console.log(f"[yellow]Rate limited, waiting {wait_time}s...[/yellow]")
-                    time.sleep(wait_time)
+                status = e.response.status_code
+                if status == 429:  # Rate limited
+                    retry_after = int(e.response.headers.get("Retry-After", 2 ** attempt))
+                    console.log(f"[yellow]Rate limited, waiting {retry_after}s...[/yellow]")
+                    time.sleep(retry_after)
+                    last_exception = JiraRateLimitError(
+                        f"Rate limited on {method} {url}", retry_after=retry_after
+                    )
                     continue
-                raise
+                # Convert HTTP status errors to specific Jira exceptions
+                elif status == 401:
+                    raise JiraAuthenticationError(f"Authentication failed for {url}") from e
+                elif status == 403:
+                    raise JiraPermissionError(f"Permission denied for {url}") from e
+                elif status == 404:
+                    raise JiraNotFoundError(f"Resource not found: {url}") from e
+                else:
+                    raise JiraAPIError(
+                        f"Jira API error: {e.response.text[:200]}", status_code=status
+                    ) from e
+
+            except httpx.TimeoutException as e:
+                wait_time = 2 ** attempt
+                console.log(f"[yellow]Request timeout, retrying in {wait_time}s...[/yellow]")
+                time.sleep(wait_time)
+                last_exception = e
 
             except httpx.RequestError as e:
                 if attempt == max_retries - 1:
@@ -236,8 +296,9 @@ class JiraClient:
                 wait_time = 2 ** attempt
                 console.log(f"[yellow]Request failed, retrying in {wait_time}s...[/yellow]")
                 time.sleep(wait_time)
+                last_exception = e
 
-        raise Exception(f"Max retries exceeded for {method} {url}")
+        raise JiraAPIError(f"Max retries exceeded for {method} {url}") from last_exception
 
     def _markdown_to_adf(self, markdown: str) -> dict:
         """

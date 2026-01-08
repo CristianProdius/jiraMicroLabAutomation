@@ -25,7 +25,7 @@ def rubric_evaluator(rubric_config):
 
 def create_mock_issue(
     summary="Add login feature",
-    description="This is a test description with more than twenty words to meet the minimum requirement for testing.",
+    description="This is a test description with more than twenty words to meet the minimum requirement for testing the rubric evaluation system.",
     labels=None,
     estimate=5.0
 ):

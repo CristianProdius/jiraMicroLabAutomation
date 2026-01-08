@@ -1,17 +1,65 @@
 """DSPy pipeline for issue analysis and feedback generation."""
 
-import json
+import re
 from dataclasses import dataclass
+from typing import Any, Optional
 
 import dspy
 from rich.console import Console
 
 from .config import AppConfig
+from .exceptions import LLMError, ScoreValidationError
 from .jira_client import JiraIssue
 from .rubric import RubricEvaluator
 from .signatures import AcceptanceCriteriaRefinement, IssueCritique
 
 console = Console()
+
+
+def sanitize_llm_input(text: str | None, max_length: int = 5000) -> str:
+    """
+    Sanitize user input before passing to LLM to prevent prompt injection.
+
+    - Removes instruction-like patterns that could manipulate LLM behavior
+    - Truncates to max length
+    - Returns empty string for None input
+
+    Args:
+        text: Input text to sanitize
+        max_length: Maximum length of output
+
+    Returns:
+        Sanitized text safe for LLM input
+    """
+    if not text:
+        return ""
+
+    # Truncate first to avoid regex on huge strings
+    text = text[:max_length]
+
+    # Remove common injection patterns (case-insensitive)
+    injection_patterns = [
+        r"(?i)ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?)",
+        r"(?i)disregard\s+(all\s+)?(previous|above|prior)",
+        r"(?i)forget\s+(all\s+)?(previous|above|prior)",
+        r"(?i)system\s*:\s*",
+        r"(?i)assistant\s*:\s*",
+        r"(?i)human\s*:\s*",
+        r"(?i)user\s*:\s*",
+        r"(?i)\[INST\]",
+        r"(?i)\[/INST\]",
+        r"(?i)</s>",
+        r"(?i)<<SYS>>",
+        r"(?i)<</SYS>>",
+        r"(?i)<\|im_start\|>",
+        r"(?i)<\|im_end\|>",
+        r"(?i)<\|endoftext\|>",
+    ]
+
+    for pattern in injection_patterns:
+        text = re.sub(pattern, "[filtered]", text)
+
+    return text
 
 
 @dataclass
@@ -25,13 +73,19 @@ class Feedback:
     strengths: list[str]
     improvements: list[str]
     suggestions: list[str]
-    rubric_breakdown: dict
-    improved_ac: str = ""
-    resources: list[str] = None
+    rubric_breakdown: dict[str, dict[str, Any]]
+    improved_ac: Optional[str] = None
+    resources: Optional[list[str]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.resources is None:
             self.resources = []
+        # Normalize empty string to None
+        if self.improved_ac == "":
+            self.improved_ac = None
+        # Validate score is in valid range
+        if not (0 <= self.score <= 100):
+            raise ScoreValidationError(f"Score must be 0-100, got {self.score}")
 
 
 class FeedbackPipeline:
@@ -65,8 +119,12 @@ class FeedbackPipeline:
             )
         elif "claude" in model_name:
             # Anthropic models
+            if not self.config.anthropic_api_key:
+                raise ValueError("ANTHROPIC_API_KEY required for Claude models")
+
             lm = dspy.Claude(
                 model=model_name,
+                api_key=self.config.anthropic_api_key,
                 temperature=0.7,
                 max_tokens=1500
             )
@@ -95,42 +153,48 @@ class FeedbackPipeline:
         # Step 2: Format rubric findings for LLM
         rubric_findings = self._format_rubric_findings(rubric_results)
 
-        # Step 3: Get LLM critique
+        # Step 3: Get LLM critique (with input sanitization)
         try:
             critique_result = self.critique_module(
-                title=issue.summary,
-                description=issue.description or "No description provided",
-                labels=", ".join(issue.labels) if issue.labels else "None",
+                title=sanitize_llm_input(issue.summary, max_length=200),
+                description=sanitize_llm_input(
+                    issue.description or "No description provided", max_length=5000
+                ),
+                labels=sanitize_llm_input(
+                    ", ".join(issue.labels) if issue.labels else "None", max_length=500
+                ),
                 estimate=str(issue.estimate) if issue.estimate else "None",
-                issue_type=issue.issue_type,
-                rubric_findings=rubric_findings
+                issue_type=sanitize_llm_input(issue.issue_type, max_length=50),
+                rubric_findings=rubric_findings,  # Generated internally, not user input
             )
 
             overall_assessment = critique_result.overall_assessment
-            strengths = [s.strip() for s in critique_result.strengths.split(",") if s.strip()]
-            improvements = [i.strip() for i in critique_result.improvements.split(",") if i.strip()]
+            strengths = self._safe_parse_csv(critique_result.strengths)
+            improvements = self._safe_parse_csv(critique_result.improvements)
             suggestions = self._parse_numbered_list(critique_result.actionable_suggestions)
 
-        except Exception as e:
+        except (dspy.DSPyAssertionError, ValueError, TypeError, RuntimeError) as e:
+            # LLM errors - fall back gracefully to rubric-only feedback
             console.log(f"[red]LLM critique failed: {e}[/red]")
-            # Fallback to rubric-only feedback
             overall_assessment = f"Rubric score: {rubric_score}/100"
             strengths = ["Issue submitted for review"]
             improvements = [r.message for r in rubric_results if r.score < 0.7]
             suggestions = [r.suggestion for r in rubric_results if r.suggestion]
 
-        # Step 4: Refine AC if needed
-        improved_ac = ""
+        # Step 4: Refine AC if needed (with input sanitization)
+        improved_ac: str | None = None
         ac_result_raw = [r for r in rubric_results if r.rule_id == "acceptance_criteria"]
         if ac_result_raw and ac_result_raw[0].score < 1.0:
             try:
                 ac_result = self.ac_refinement_module(
-                    title=issue.summary,
-                    description=issue.description or "",
-                    current_ac=self._extract_ac(issue.description)
+                    title=sanitize_llm_input(issue.summary, max_length=200),
+                    description=sanitize_llm_input(issue.description or "", max_length=5000),
+                    current_ac=sanitize_llm_input(
+                        self._extract_ac(issue.description), max_length=2000
+                    ),
                 )
                 improved_ac = ac_result.refined_ac
-            except Exception as e:
+            except (dspy.DSPyAssertionError, ValueError, TypeError, RuntimeError) as e:
                 console.log(f"[yellow]AC refinement failed: {e}[/yellow]")
 
         # Step 5: Determine emoji based on score
@@ -175,8 +239,16 @@ class FeedbackPipeline:
 
         return "None explicitly stated"
 
-    def _parse_numbered_list(self, text: str) -> list[str]:
+    def _safe_parse_csv(self, text: str | None) -> list[str]:
+        """Safely parse comma-separated values from LLM output."""
+        if not text or not isinstance(text, str):
+            return []
+        return [s.strip() for s in text.split(",") if s.strip()]
+
+    def _parse_numbered_list(self, text: str | None) -> list[str]:
         """Parse numbered list from LLM output."""
+        if not text or not isinstance(text, str):
+            return []
         items = []
         for line in text.split("\n"):
             line = line.strip()
