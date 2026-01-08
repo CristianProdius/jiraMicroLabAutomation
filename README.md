@@ -552,7 +552,29 @@ LOG_FILE=logs/app.log
 
 # Notifications (optional)
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+TELEGRAM_CHAT_ID=-1001234567890
 ```
+
+### Telegram Notifications
+
+To receive notifications via Telegram:
+
+1. **Create a bot:**
+   - Message [@BotFather](https://t.me/BotFather) on Telegram
+   - Send `/newbot` and follow the prompts
+   - Copy the bot token (looks like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
+
+2. **Get your Chat ID:**
+   - For personal notifications: Message [@userinfobot](https://t.me/userinfobot) to get your user ID
+   - For group notifications: Add the bot to a group, then use the Telegram API to get the group chat ID
+   - For channel notifications: Add the bot as admin to a channel, use `@channelusername` or the numeric ID
+
+3. **Configure environment:**
+   ```env
+   TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+   TELEGRAM_CHAT_ID=-1001234567890
+   ```
 
 ### Rubric Customization
 

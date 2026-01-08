@@ -138,7 +138,9 @@ def main():
         feedback_writer = FeedbackWriter(
             mode=config.feedback_mode,
             jira_client=jira_client if not args.dry_run else None,
-            slack_webhook=config.slack_webhook_url
+            slack_webhook=config.slack_webhook_url,
+            telegram_bot_token=config.telegram_bot_token,
+            telegram_chat_id=config.telegram_chat_id
         )
 
         # Process issues
@@ -188,6 +190,10 @@ def main():
             # Send Slack notification if configured
             if config.slack_webhook_url and not args.dry_run:
                 feedback_writer.send_slack_notification(all_feedbacks, limit=10)
+
+            # Send Telegram notification if configured
+            if config.telegram_bot_token and config.telegram_chat_id and not args.dry_run:
+                feedback_writer.send_telegram_notification(all_feedbacks, limit=10)
 
         # Exit with non-zero if critical failures
         if critical_failures:

@@ -86,6 +86,8 @@ class AppConfig(BaseModel):
 
     # Optional integrations
     slack_webhook_url: Optional[str] = None
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
 
     # Logging settings
     log_level: str = Field(default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")
@@ -139,6 +141,8 @@ class AppConfig(BaseModel):
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
             rubric=rubric_config,
             slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL"),
+            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
+            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             log_file=Path(os.getenv("LOG_FILE")) if os.getenv("LOG_FILE") else None,
         )

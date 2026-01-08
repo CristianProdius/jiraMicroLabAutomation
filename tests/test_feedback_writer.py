@@ -323,6 +323,138 @@ class TestSlackNotification:
         writer.send_slack_notification(feedbacks)
 
 
+class TestTelegramNotification:
+    """Tests for Telegram notification functionality."""
+
+    def test_no_token_configured(self):
+        """Should not error when Telegram not configured."""
+        writer = FeedbackWriter(mode="comment")
+        feedbacks = [create_feedback(score=50)]
+        writer.send_telegram_notification(feedbacks)  # Should not raise
+
+    def test_no_chat_id_configured(self):
+        """Should not send when chat_id missing."""
+        writer = FeedbackWriter(mode="comment", telegram_bot_token="token")
+        feedbacks = [create_feedback(score=50)]
+        writer.send_telegram_notification(feedbacks)  # Should not raise
+
+    def test_empty_feedbacks(self):
+        """Should not send when no feedbacks."""
+        writer = FeedbackWriter(
+            mode="comment",
+            telegram_bot_token="token",
+            telegram_chat_id="123"
+        )
+        writer.send_telegram_notification([])  # Should not raise
+
+    @patch("httpx.post")
+    def test_successful_notification(self, mock_post):
+        """Should send formatted message to Telegram API."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        writer = FeedbackWriter(
+            mode="comment",
+            telegram_bot_token="test_token",
+            telegram_chat_id="test_chat"
+        )
+        feedbacks = [
+            create_feedback(issue_key="TEST-1", score=45),
+            create_feedback(issue_key="TEST-2", score=75),
+        ]
+
+        writer.send_telegram_notification(feedbacks)
+
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert "api.telegram.org" in call_args[0][0]
+        assert call_args[1]["json"]["chat_id"] == "test_chat"
+        assert "TEST-1" in call_args[1]["json"]["text"]
+
+    @patch("httpx.post")
+    def test_sorts_by_score(self, mock_post):
+        """Should sort feedbacks by score (lowest first)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        writer = FeedbackWriter(
+            mode="comment",
+            telegram_bot_token="token",
+            telegram_chat_id="chat"
+        )
+        feedbacks = [
+            create_feedback(issue_key="HIGH", score=90),
+            create_feedback(issue_key="LOW", score=30),
+            create_feedback(issue_key="MID", score=60),
+        ]
+
+        writer.send_telegram_notification(feedbacks, limit=2)
+
+        text = mock_post.call_args[1]["json"]["text"]
+        low_pos = text.find("LOW")
+        mid_pos = text.find("MID")
+        high_pos = text.find("HIGH")
+
+        assert low_pos < mid_pos  # LOW should appear before MID
+        assert high_pos == -1     # HIGH should not appear (limit=2)
+
+    @patch("httpx.post")
+    def test_api_failure(self, mock_post):
+        """Should handle API failure gracefully."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_post.return_value = mock_response
+
+        writer = FeedbackWriter(
+            mode="comment",
+            telegram_bot_token="token",
+            telegram_chat_id="chat"
+        )
+        feedbacks = [create_feedback(score=50)]
+
+        # Should not raise
+        writer.send_telegram_notification(feedbacks)
+
+    @patch("httpx.post")
+    def test_network_error(self, mock_post):
+        """Should handle network errors gracefully."""
+        mock_post.side_effect = httpx.TimeoutException("Timeout")
+
+        writer = FeedbackWriter(
+            mode="comment",
+            telegram_bot_token="token",
+            telegram_chat_id="chat"
+        )
+        feedbacks = [create_feedback(score=50)]
+
+        # Should not raise
+        writer.send_telegram_notification(feedbacks)
+
+    @patch("httpx.post")
+    def test_message_format(self, mock_post):
+        """Should format message with Markdown."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        writer = FeedbackWriter(
+            mode="comment",
+            telegram_bot_token="token",
+            telegram_chat_id="chat"
+        )
+        feedbacks = [create_feedback(issue_key="TEST-1", score=50)]
+
+        writer.send_telegram_notification(feedbacks)
+
+        call_args = mock_post.call_args
+        assert call_args[1]["json"]["parse_mode"] == "Markdown"
+        text = call_args[1]["json"]["text"]
+        assert "🔔" in text
+        assert "*Jira Feedback Summary" in text
+
+
 class TestGenerateSummaryReport:
     """Tests for generate_summary_report function."""
 

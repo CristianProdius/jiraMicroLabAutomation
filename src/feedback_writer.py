@@ -20,10 +20,19 @@ console = Console()
 class FeedbackWriter:
     """Format and write feedback as comments or reports."""
 
-    def __init__(self, mode: str, jira_client: Optional[JiraClient] = None, slack_webhook: Optional[str] = None):
+    def __init__(
+        self,
+        mode: str,
+        jira_client: Optional[JiraClient] = None,
+        slack_webhook: Optional[str] = None,
+        telegram_bot_token: Optional[str] = None,
+        telegram_chat_id: Optional[str] = None
+    ):
         self.mode = mode
         self.jira_client = jira_client
         self.slack_webhook = slack_webhook
+        self.telegram_bot_token = telegram_bot_token
+        self.telegram_chat_id = telegram_chat_id
 
     def deliver(self, feedback: Feedback, dry_run: bool = False) -> bool:
         """
@@ -226,6 +235,53 @@ class FeedbackWriter:
 
         except httpx.HTTPError as e:
             console.log(f"[yellow]Failed to send Slack notification: {e}[/yellow]")
+
+    def send_telegram_notification(self, feedbacks: list[Feedback], limit: int = 10):
+        """Send Telegram notification with top issues needing attention."""
+        if not self.telegram_bot_token or not self.telegram_chat_id:
+            return
+
+        # Sort by score (lowest first)
+        sorted_feedbacks = sorted(feedbacks, key=lambda f: f.score)[:limit]
+
+        if not sorted_feedbacks:
+            return
+
+        # Build Telegram message (Markdown format)
+        lines = [
+            f"🔔 *Jira Feedback Summary - {datetime.now().strftime('%Y-%m-%d')}*",
+            "",
+            f"Analyzed {len(feedbacks)} issues. Top {len(sorted_feedbacks)} needing attention:",
+            ""
+        ]
+
+        for fb in sorted_feedbacks:
+            # Escape special markdown characters
+            assessment = fb.overall_assessment[:80].replace('_', '\\_').replace('*', '\\*')
+            lines.append(f"• *{fb.issue_key}* - Score: {fb.score}/100 {fb.emoji}")
+            lines.append(f"  _{assessment}..._")
+            lines.append("")
+
+        message = "\n".join(lines)
+
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+            response = httpx.post(
+                url,
+                json={
+                    "chat_id": self.telegram_chat_id,
+                    "text": message,
+                    "parse_mode": "Markdown"
+                },
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                console.log("[green]✓ Telegram notification sent[/green]")
+            else:
+                console.log(f"[yellow]Telegram notification failed: {response.status_code}[/yellow]")
+
+        except httpx.HTTPError as e:
+            console.log(f"[yellow]Failed to send Telegram notification: {e}[/yellow]")
 
 
 def generate_summary_report(feedbacks: list[Feedback], output_path: Optional[Path] = None) -> str:
