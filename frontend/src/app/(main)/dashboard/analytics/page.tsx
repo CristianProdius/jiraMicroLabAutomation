@@ -16,6 +16,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ChartContainer,
   ChartTooltip,
@@ -31,15 +43,23 @@ import {
   BarChart,
   Bar,
 } from "recharts";
-import { feedbackApi } from "@/lib/api/feedback-api";
-import type { ScoreTrendItem, TeamPerformanceItem } from "@/types/feedback";
-import { TrendingUp, TrendingDown, Minus, Users } from "lucide-react";
+import { feedbackApi, gradesApi } from "@/lib/api/feedback-api";
+import type { ScoreTrendItem, TeamPerformanceItem, GradeExportPreview } from "@/types/feedback";
+import { TrendingUp, TrendingDown, Minus, Users, Download, FileSpreadsheet } from "lucide-react";
 
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState("30");
   const [trends, setTrends] = useState<ScoreTrendItem[]>([]);
   const [teamPerformance, setTeamPerformance] = useState<TeamPerformanceItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Grade export state
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportFromDate, setExportFromDate] = useState("");
+  const [exportToDate, setExportToDate] = useState("");
+  const [exportPreview, setExportPreview] = useState<GradeExportPreview | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -78,6 +98,58 @@ export default function AnalyticsPage() {
     return <Minus className="h-4 w-4 text-muted-foreground" />;
   };
 
+  const loadExportPreview = async () => {
+    setIsLoadingPreview(true);
+    try {
+      const preview = await gradesApi.preview({
+        from_date: exportFromDate || undefined,
+        to_date: exportToDate || undefined,
+      });
+      setExportPreview(preview);
+    } catch (error) {
+      console.error("Failed to load export preview:", error);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await gradesApi.exportCsv({
+        from_date: exportFromDate || undefined,
+        to_date: exportToDate || undefined,
+      });
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `grades_${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      setExportDialogOpen(false);
+    } catch (error) {
+      console.error("Failed to export grades:", error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const getGradeColor = (grade: string) => {
+    switch (grade) {
+      case "A": return "text-green-600 dark:text-green-400";
+      case "B": return "text-blue-600 dark:text-blue-400";
+      case "C": return "text-yellow-600 dark:text-yellow-400";
+      case "D": return "text-orange-600 dark:text-orange-400";
+      case "F": return "text-red-600 dark:text-red-400";
+      default: return "text-muted-foreground";
+    }
+  };
+
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <div className="flex items-center justify-between">
@@ -87,16 +159,111 @@ export default function AnalyticsPage() {
             Track quality trends and team performance over time.
           </p>
         </div>
-        <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-            <SelectItem value="90">Last 90 days</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" onClick={() => loadExportPreview()}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Export Grades
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Export Grades to CSV</DialogTitle>
+                <DialogDescription>
+                  Export student grades for gradebook integration. Select a date range to filter.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="from-date">From Date</Label>
+                    <Input
+                      id="from-date"
+                      type="date"
+                      value={exportFromDate}
+                      onChange={(e) => setExportFromDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="to-date">To Date</Label>
+                    <Input
+                      id="to-date"
+                      type="date"
+                      value={exportToDate}
+                      onChange={(e) => setExportToDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <Button variant="secondary" onClick={loadExportPreview} disabled={isLoadingPreview}>
+                  {isLoadingPreview ? "Loading..." : "Refresh Preview"}
+                </Button>
+
+                {exportPreview && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 text-center">
+                      <div className="rounded-lg border p-3">
+                        <p className="text-2xl font-bold">{exportPreview.total_students}</p>
+                        <p className="text-xs text-muted-foreground">Students</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-2xl font-bold">{exportPreview.class_average.toFixed(1)}</p>
+                        <p className="text-xs text-muted-foreground">Class Avg</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border">
+                      <div className="max-h-[200px] overflow-auto">
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 bg-muted">
+                            <tr>
+                              <th className="p-2 text-left font-medium">Student</th>
+                              <th className="p-2 text-center font-medium">Issues</th>
+                              <th className="p-2 text-center font-medium">Avg Score</th>
+                              <th className="p-2 text-center font-medium">Grade</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {exportPreview.records.map((student) => (
+                              <tr key={student.student_name} className="border-t">
+                                <td className="p-2">{student.student_name}</td>
+                                <td className="p-2 text-center">{student.issue_count}</td>
+                                <td className="p-2 text-center">{student.average_score.toFixed(1)}</td>
+                                <td className={`p-2 text-center font-bold ${getGradeColor(student.letter_grade)}`}>
+                                  {student.letter_grade}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setExportDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleExport} disabled={isExporting || !exportPreview}>
+                  <Download className="mr-2 h-4 w-4" />
+                  {isExporting ? "Exporting..." : "Download CSV"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Score Trends */}

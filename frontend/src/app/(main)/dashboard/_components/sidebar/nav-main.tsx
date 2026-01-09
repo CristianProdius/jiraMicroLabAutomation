@@ -35,6 +35,10 @@ const IsComingSoon = () => (
   <span className="ml-auto rounded-md bg-gray-200 px-2 py-1 text-xs dark:text-gray-800">Soon</span>
 );
 
+const IsNew = () => (
+  <span className="ml-auto rounded-md bg-green-500 px-2 py-1 text-xs text-white">New</span>
+);
+
 const NavItemExpanded = ({
   item,
   isActive,
@@ -70,6 +74,7 @@ const NavItemExpanded = ({
                 {item.icon && <item.icon />}
                 <span>{item.title}</span>
                 {item.comingSoon && <IsComingSoon />}
+                {item.isNew && !item.comingSoon && <IsNew />}
               </Link>
             </SidebarMenuButton>
           )}
@@ -201,6 +206,7 @@ export function NavMain({ items }: NavMainProps) {
                           <Link prefetch={false} href={item.url} target={item.newTab ? "_blank" : undefined}>
                             {item.icon && <item.icon />}
                             <span>{item.title}</span>
+                            {item.isNew && !item.comingSoon && <IsNew />}
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

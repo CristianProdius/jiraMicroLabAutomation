@@ -211,14 +211,43 @@ class AnalysisService:
         feedback: Feedback,
         posted_to_jira: bool = False,
     ) -> FeedbackHistory:
-        """Save feedback to history."""
+        """Save feedback to history with revision tracking."""
         # Convert rubric breakdown to the format expected
         rubric_breakdown = feedback.rubric_breakdown
+        content_hash = issue.content_hash()
+
+        # Check for previous feedback on this issue (revision detection)
+        previous_feedback = (
+            self.db.query(FeedbackHistory)
+            .filter(
+                FeedbackHistory.user_id == self.user_id,
+                FeedbackHistory.issue_key == issue.key,
+            )
+            .order_by(FeedbackHistory.created_at.desc())
+            .first()
+        )
+
+        # Determine revision info
+        revision_number = 1
+        previous_feedback_id = None
+
+        if previous_feedback:
+            # Only count as revision if content changed
+            if previous_feedback.content_hash != content_hash:
+                revision_number = previous_feedback.revision_number + 1
+                previous_feedback_id = previous_feedback.id
+            else:
+                # Same content, still a new analysis but same revision
+                revision_number = previous_feedback.revision_number
+                previous_feedback_id = previous_feedback.id
+
+        # Determine if passing (score >= 70)
+        is_passing = feedback.score >= 70.0
 
         history = FeedbackHistory(
             user_id=self.user_id,
             issue_key=issue.key,
-            content_hash=issue.content_hash(),
+            content_hash=content_hash,
             score=feedback.score,
             emoji=feedback.emoji,
             overall_assessment=feedback.overall_assessment,
@@ -234,6 +263,10 @@ class AnalysisService:
             assignee=issue.assignee,
             labels=issue.labels,
             was_posted_to_jira=posted_to_jira,
+            # Revision tracking
+            previous_feedback_id=previous_feedback_id,
+            revision_number=revision_number,
+            is_passing=is_passing,
         )
         self.db.add(history)
         self.db.commit()

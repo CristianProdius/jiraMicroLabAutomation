@@ -40,6 +40,11 @@ class FeedbackHistory(Base):
     assignee = Column(String(100), nullable=True)
     labels = Column(JSON, nullable=True)
 
+    # Revision tracking
+    previous_feedback_id = Column(Integer, ForeignKey("feedback_history.id", ondelete="SET NULL"), nullable=True)
+    revision_number = Column(Integer, default=1, nullable=False)
+    is_passing = Column(Boolean, default=False, nullable=False)  # score >= 70
+
     # Delivery tracking
     was_posted_to_jira = Column(Boolean, default=False)
     jira_comment_id = Column(String(100), nullable=True)
@@ -51,6 +56,12 @@ class FeedbackHistory(Base):
 
     # Relationships
     user = relationship("User", back_populates="feedback_history")
+    previous_feedback = relationship(
+        "FeedbackHistory",
+        remote_side=[id],
+        backref="revisions",
+        foreign_keys=[previous_feedback_id],
+    )
 
 
 class AnalysisJob(Base):

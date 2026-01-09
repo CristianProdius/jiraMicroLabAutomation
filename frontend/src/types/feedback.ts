@@ -260,3 +260,141 @@ export interface ActivityItem {
   issue_key?: string;
   score?: number;
 }
+
+// Revision tracking types
+export interface RevisionSummary {
+  id: number;
+  revision_number: number;
+  score: number;
+  emoji: string;
+  is_passing: boolean;
+  content_hash: string;
+  created_at: string;
+}
+
+export interface IssueRevisionHistory {
+  issue_key: string;
+  issue_summary: string | null;
+  revisions: RevisionSummary[];
+  total_revisions: number;
+  revisions_to_pass: number | null;
+  first_score: number;
+  latest_score: number;
+  score_improvement: number;
+}
+
+export interface RevisionStats {
+  total_issues_with_revisions: number;
+  average_revisions_per_issue: number;
+  average_revisions_to_pass: number | null;
+  issues_improved_after_revision: number;
+  average_score_improvement: number;
+}
+
+// Student progress types
+export interface MilestoneItem {
+  type: string;
+  title: string;
+  description: string;
+  achieved_at: string;
+  issue_key: string | null;
+}
+
+export interface StudentSummary {
+  assignee: string;
+  total_issues: number;
+  average_score: number;
+  passing_rate: number;
+  trend: number;
+  latest_activity: string | null;
+}
+
+export interface StudentProgress {
+  assignee: string;
+  total_issues: number;
+  average_score: number;
+  passing_rate: number;
+  score_trend: ScoreTrendItem[];
+  skill_breakdown: Record<string, number>;
+  class_comparison: Record<string, number>;
+  milestones: MilestoneItem[];
+  recent_feedbacks: FeedbackSummary[];
+}
+
+export interface SkillRadarData {
+  skills: string[];
+  skill_ids: string[];
+  student_scores: number[];
+  class_average_scores: number[];
+}
+
+export interface StudentsListResponse {
+  students: StudentSummary[];
+  total_students: number;
+  class_average_score: number;
+}
+
+// Grade export types
+export interface GradeExportRequest {
+  from_date?: string;
+  to_date?: string;
+  grade_mapping?: Record<string, number[]>;
+  include_individual_issues?: boolean;
+}
+
+export interface StudentGradeRecord {
+  student_name: string;
+  issue_count: number;
+  average_score: number;
+  trend: number;
+  letter_grade: string;
+  passing_rate: number;
+}
+
+export interface GradeExportPreview {
+  records: StudentGradeRecord[];
+  total_students: number;
+  class_average: number;
+  date_range: string;
+}
+
+// Skill gap analysis types
+export interface WeakAreaItem {
+  rule_id: string;
+  rule_name: string;
+  average_score: number;
+  students_struggling: number;
+  improvement_trend: number;
+}
+
+export interface StudentGapItem {
+  assignee: string;
+  skill_gaps: string[];
+  biggest_gap_rule: string;
+  biggest_gap_amount: number;
+}
+
+export interface SkillTrendPoint {
+  date: string;
+  average_score: number;
+  sample_size: number;
+}
+
+export interface SkillGapAnalysis {
+  overall_stats: Record<string, number>;
+  rule_names: Record<string, string>;
+  time_series: Record<string, SkillTrendPoint[]>;
+  weak_areas: WeakAreaItem[];
+  strong_areas: WeakAreaItem[];
+  student_gaps: StudentGapItem[];
+}
+
+export interface SkillDetail {
+  rule_id: string;
+  rule_name: string;
+  class_average: number;
+  trend_data: SkillTrendPoint[];
+  score_distribution: Record<string, number>;
+  students_by_performance: Record<string, string[]>;
+  improvement_suggestions: string[];
+}

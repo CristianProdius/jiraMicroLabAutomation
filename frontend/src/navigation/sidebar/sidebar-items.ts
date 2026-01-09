@@ -1,11 +1,13 @@
 import {
   ChartBar,
   ClipboardList,
+  GraduationCap,
   LayoutDashboard,
   type LucideIcon,
   Radio,
   Settings,
   Settings2,
+  Target,
 } from "lucide-react";
 
 export interface NavSubItem {
@@ -54,6 +56,18 @@ export const sidebarItems: NavGroup[] = [
         icon: Settings2,
       },
       {
+        title: "Students",
+        url: "/dashboard/students",
+        icon: GraduationCap,
+        isNew: true,
+      },
+      {
+        title: "Skill Analysis",
+        url: "/dashboard/skills",
+        icon: Target,
+        isNew: true,
+      },
+      {
         title: "Analytics",
         url: "/dashboard/analytics",
         icon: ChartBar,
@@ -62,7 +76,6 @@ export const sidebarItems: NavGroup[] = [
         title: "Live Monitor",
         url: "/dashboard/monitor",
         icon: Radio,
-        isNew: true,
       },
     ],
   },
