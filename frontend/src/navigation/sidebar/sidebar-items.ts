@@ -59,13 +59,11 @@ export const sidebarItems: NavGroup[] = [
         title: "Students",
         url: "/dashboard/students",
         icon: GraduationCap,
-        isNew: true,
       },
       {
         title: "Skill Analysis",
         url: "/dashboard/skills",
         icon: Target,
-        isNew: true,
       },
       {
         title: "Analytics",
