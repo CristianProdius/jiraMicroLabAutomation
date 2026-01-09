@@ -421,7 +421,15 @@ export default function SettingsPage() {
                   </span>
                   <span className="text-sm">
                     Start a chat with{" "}
-                    <code className="rounded bg-muted px-1">@JiraFeedbackBot</code>
+                    <a
+                      href="https://t.me/jira_feedback_microlab_bot"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >
+                      @jira_feedback_microlab_bot
+                      <ExternalLink className="inline h-3 w-3 ml-1" />
+                    </a>
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
