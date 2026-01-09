@@ -348,6 +348,26 @@ async def get_users_with_notifications_enabled() -> list[dict]:
         db.close()
 
 
+def _escape_markdown(text: str) -> str:
+    """Escape special characters for MarkdownV2."""
+    if not text:
+        return ""
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
+def _get_score_emoji(score: float) -> str:
+    """Get emoji based on score."""
+    if score >= 80:
+        return "🟢"
+    elif score >= 60:
+        return "🟡"
+    else:
+        return "🔴"
+
+
 async def send_feedback_notification(user_id: int, issue_key: str, score: float, summary: str) -> bool:
     """Send a feedback notification to a user's Telegram if enabled."""
     db = SessionLocal()
@@ -370,28 +390,82 @@ async def send_feedback_notification(user_id: int, issue_key: str, score: float,
 
         bot = get_bot()
 
-        # Determine emoji based on score
-        if score >= 80:
-            emoji = "🟢"
-        elif score >= 60:
-            emoji = "🟡"
-        else:
-            emoji = "🔴"
-
-        # Escape special characters for MarkdownV2
-        def escape_md(text: str) -> str:
-            special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-            for char in special_chars:
-                text = text.replace(char, f'\\{char}')
-            return text
+        emoji = _get_score_emoji(score)
 
         message = (
-            f"{emoji} *New Feedback for `{escape_md(issue_key)}`*\n\n"
+            f"{emoji} *New Feedback for `{_escape_markdown(issue_key)}`*\n\n"
             f"*Score:* {score:.0f}/100\n"
-            f"*Summary:* {escape_md(summary[:100])}{'...' if len(summary) > 100 else ''}\n\n"
-            f"Use `/analyze {escape_md(issue_key)}` for full details\\."
+            f"*Summary:* {_escape_markdown(summary[:100])}{'\\.\\.\\.' if len(summary) > 100 else ''}\n\n"
+            f"Use `/analyze {_escape_markdown(issue_key)}` for full details\\."
         )
 
         return await bot.send_notification(link.telegram_chat_id, message)
     finally:
         db.close()
+
+
+async def send_job_summary(user_id: int, job, db: Session) -> bool:
+    """Send a batch job completion summary to user's Telegram."""
+    link = (
+        db.query(TelegramUserLink)
+        .filter(
+            TelegramUserLink.user_id == user_id,
+            TelegramUserLink.is_verified == True,
+            TelegramUserLink.notifications_enabled == True,
+            TelegramUserLink.telegram_chat_id.isnot(None),
+        )
+        .first()
+    )
+
+    if not link:
+        return False
+
+    from api.telegram.bot import get_bot
+
+    bot = get_bot()
+
+    # Determine overall status emoji
+    if job.status == "completed":
+        if job.failed_issues == 0:
+            status_emoji = "✅"
+            status_text = "Completed Successfully"
+        else:
+            status_emoji = "⚠️"
+            status_text = "Completed with Errors"
+    elif job.status == "failed":
+        status_emoji = "❌"
+        status_text = "Failed"
+    else:
+        status_emoji = "ℹ️"
+        status_text = job.status.capitalize()
+
+    # Score emoji
+    avg_score = job.average_score or 0
+    score_emoji = _get_score_emoji(avg_score)
+
+    # Build message
+    message = (
+        f"{status_emoji} *Batch Analysis {status_text}*\n\n"
+        f"📊 *Results Summary*\n"
+        f"• Issues analyzed: *{job.processed_issues}*\n"
+        f"• Failed: *{job.failed_issues}*\n"
+    )
+
+    if job.average_score is not None:
+        message += f"• Average score: {score_emoji} *{job.average_score:.1f}*/100\n"
+
+    if job.lowest_score is not None and job.highest_score is not None:
+        message += f"• Score range: *{job.lowest_score:.0f}* \\- *{job.highest_score:.0f}*\n"
+
+    # Add timing info
+    if job.started_at and job.completed_at:
+        duration = (job.completed_at - job.started_at).total_seconds()
+        if duration < 60:
+            duration_text = f"{duration:.0f} seconds"
+        else:
+            duration_text = f"{duration / 60:.1f} minutes"
+        message += f"\n⏱️ Duration: {_escape_markdown(duration_text)}\n"
+
+    message += "\nView detailed results in the web dashboard\\."
+
+    return await bot.send_notification(link.telegram_chat_id, message)

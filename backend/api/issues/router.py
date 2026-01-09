@@ -139,6 +139,20 @@ async def analyze_issue(
                 # Log but don't fail the request
                 print(f"Failed to post comment to Jira: {e}")
 
+        # Send Telegram notification if requested
+        if request.send_telegram:
+            try:
+                from api.telegram.service import send_feedback_notification
+                await send_feedback_notification(
+                    user_id=current_user.id,
+                    issue_key=feedback.issue_key,
+                    score=feedback.score,
+                    summary=feedback.overall_assessment,
+                )
+            except Exception as e:
+                # Log but don't fail the request
+                print(f"Failed to send Telegram notification: {e}")
+
         # Build response with rule names
         rubric_breakdown = [
             RubricResultResponse(

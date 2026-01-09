@@ -43,6 +43,7 @@ class AnalyzeSingleRequest(BaseModel):
 
     rubric_config_id: Optional[int] = None
     post_to_jira: bool = False
+    send_telegram: bool = False
 
 
 class BatchAnalyzeRequest(BaseModel):
