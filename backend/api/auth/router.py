@@ -309,30 +309,47 @@ async def delete_jira_credentials(
 
 @router.post("/jira/test", response_model=JiraConnectionTest)
 async def test_jira_connection(
+    test_credentials: JiraCredentialsCreate | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Test Jira connection with stored credentials."""
-    service = JiraCredentialsService(db)
-    credentials = service.get_credentials(current_user.id)
+    """Test Jira connection with provided or stored credentials.
 
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No Jira credentials configured",
-        )
+    If test_credentials is provided, tests with those credentials without saving.
+    Otherwise, tests with stored credentials.
+    """
+    service = JiraCredentialsService(db)
+
+    # Determine which credentials to use
+    if test_credentials:
+        # Use provided credentials for testing (without saving)
+        test_url = test_credentials.base_url
+        test_email = test_credentials.email
+        test_token = test_credentials.api_token
+        stored_credentials = None
+    else:
+        # Use stored credentials
+        stored_credentials = service.get_credentials(current_user.id)
+        if not stored_credentials:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No Jira credentials configured",
+            )
+        test_url = stored_credentials.base_url
+        test_email = stored_credentials.email
+        test_token = service.get_decrypted_token(stored_credentials)
 
     try:
         # Import here to avoid circular imports
         from src.config import JiraAuthConfig
         from src.jira_client import JiraClient
 
-        # Create Jira client with user's credentials
+        # Create Jira client with credentials
         jira_config = JiraAuthConfig(
             method="pat",
-            base_url=credentials.base_url,
-            email=credentials.email,
-            api_token=service.get_decrypted_token(credentials),
+            base_url=test_url,
+            email=test_email,
+            api_token=test_token,
         )
         client = JiraClient(jira_config)
 
@@ -340,8 +357,9 @@ async def test_jira_connection(
         user_info = client.get_current_user()
         client.close()
 
-        # Mark as valid
-        service.mark_tested(credentials, is_valid=True)
+        # Mark stored credentials as valid (only if testing stored credentials)
+        if stored_credentials:
+            service.mark_tested(stored_credentials, is_valid=True)
 
         return JiraConnectionTest(
             success=True,
@@ -350,8 +368,9 @@ async def test_jira_connection(
         )
 
     except Exception as e:
-        # Mark as invalid
-        service.mark_tested(credentials, is_valid=False)
+        # Mark stored credentials as invalid (only if testing stored credentials)
+        if stored_credentials:
+            service.mark_tested(stored_credentials, is_valid=False)
 
         return JiraConnectionTest(
             success=False,

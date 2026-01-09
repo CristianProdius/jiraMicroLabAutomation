@@ -17,6 +17,7 @@ from api.issues.schemas import (
 )
 from api.issues.service import IssueService, AnalysisService
 from api.rubrics.models import DEFAULT_RUBRIC_RULES
+from api.feedback.models import AnalysisJob
 
 router = APIRouter(prefix="/issues", tags=["Issues"])
 
@@ -218,12 +219,13 @@ async def analyze_batch(
 
 @router.get("/jobs", response_model=list[JobStatusResponse])
 async def list_jobs(
+    limit: int = 20,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List recent analysis jobs."""
     analysis_service = AnalysisService(db, current_user.id)
-    jobs = analysis_service.get_user_jobs()
+    jobs = analysis_service.get_user_jobs(limit=limit)
 
     return [
         JobStatusResponse(
