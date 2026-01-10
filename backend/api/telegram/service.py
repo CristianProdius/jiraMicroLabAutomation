@@ -392,10 +392,11 @@ async def send_feedback_notification(user_id: int, issue_key: str, score: float,
 
         emoji = _get_score_emoji(score)
 
+        ellipsis = '\\.\\.\\.' if len(summary) > 100 else ''
         message = (
             f"{emoji} *New Feedback for `{_escape_markdown(issue_key)}`*\n\n"
             f"*Score:* {score:.0f}/100\n"
-            f"*Summary:* {_escape_markdown(summary[:100])}{'\\.\\.\\.' if len(summary) > 100 else ''}\n\n"
+            f"*Summary:* {_escape_markdown(summary[:100])}{ellipsis}\n\n"
             f"Use `/analyze {_escape_markdown(issue_key)}` for full details\\."
         )
 
@@ -455,7 +456,8 @@ async def send_job_summary(user_id: int, job, db: Session) -> bool:
         message += f"• Average score: {score_emoji} *{job.average_score:.1f}*/100\n"
 
     if job.lowest_score is not None and job.highest_score is not None:
-        message += f"• Score range: *{job.lowest_score:.0f}* \\- *{job.highest_score:.0f}*\n"
+        dash = '\\-'
+        message += f"• Score range: *{job.lowest_score:.0f}* {dash} *{job.highest_score:.0f}*\n"
 
     # Add timing info
     if job.started_at and job.completed_at:
