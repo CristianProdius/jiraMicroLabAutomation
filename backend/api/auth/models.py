@@ -75,7 +75,7 @@ class TelegramUserLink(Base):
     telegram_username = Column(String(100), nullable=True)
     is_verified = Column(Boolean, default=False)
     verification_code = Column(String(50), nullable=True)
-    code_expires_at = Column(DateTime, nullable=True)
+    verification_expires_at = Column(DateTime, nullable=True)
     notifications_enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

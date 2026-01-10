@@ -64,6 +64,7 @@ export default function SettingsPage() {
   // Telegram state
   const [telegramCode, setTelegramCode] = useState<string | null>(null);
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [telegramError, setTelegramError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -145,11 +146,14 @@ export default function SettingsPage() {
 
   const handleGenerateTelegramCode = async () => {
     setIsGeneratingCode(true);
+    setTelegramError(null);
     try {
       const result = await telegramApi.generateCode();
       setTelegramCode(result.code);
     } catch (error) {
       console.error("Failed to generate code:", error);
+      const message = error instanceof Error ? error.message : "Failed to generate code";
+      setTelegramError(message);
     } finally {
       setIsGeneratingCode(false);
     }
@@ -470,22 +474,30 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               ) : (
-                <Button
-                  onClick={handleGenerateTelegramCode}
-                  disabled={isGeneratingCode}
-                >
-                  {isGeneratingCode ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="mr-2 h-4 w-4" />
-                      Generate Code
-                    </>
+                <div className="space-y-2">
+                  <Button
+                    onClick={handleGenerateTelegramCode}
+                    disabled={isGeneratingCode}
+                  >
+                    {isGeneratingCode ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="mr-2 h-4 w-4" />
+                        Generate Code
+                      </>
+                    )}
+                  </Button>
+                  {telegramError && (
+                    <div className="flex items-center gap-2 rounded-lg bg-red-500/10 p-3 text-red-500">
+                      <XCircle className="h-4 w-4" />
+                      <span className="text-sm">{telegramError}</span>
+                    </div>
                   )}
-                </Button>
+                </div>
               )}
             </>
           )}

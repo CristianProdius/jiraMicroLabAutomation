@@ -32,12 +32,12 @@ async def generate_verification_code(user_id: int) -> dict:
 
         if link:
             link.verification_code = code
-            link.code_expires_at = datetime.utcnow() + timedelta(minutes=15)
+            link.verification_expires_at = datetime.utcnow() + timedelta(minutes=15)
         else:
             link = TelegramUserLink(
                 user_id=user_id,
                 verification_code=code,
-                code_expires_at=datetime.utcnow() + timedelta(minutes=15),
+                verification_expires_at=datetime.utcnow() + timedelta(minutes=15),
             )
             db.add(link)
 
@@ -57,7 +57,7 @@ async def verify_telegram_link(code: str, chat_id: str, username: Optional[str])
             db.query(TelegramUserLink)
             .filter(
                 TelegramUserLink.verification_code == code,
-                TelegramUserLink.code_expires_at > datetime.utcnow(),
+                TelegramUserLink.verification_expires_at > datetime.utcnow(),
             )
             .first()
         )
@@ -86,7 +86,7 @@ async def verify_telegram_link(code: str, chat_id: str, username: Optional[str])
         link.telegram_username = username
         link.is_verified = True
         link.verification_code = None
-        link.code_expires_at = None
+        link.verification_expires_at = None
         link.notifications_enabled = True
 
         db.commit()
