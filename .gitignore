@@ -67,6 +67,7 @@ yarn-error.log*
 .env
 .env.local
 .env*.local
+.env.backup*
 !.env.example
 
 # ===================
@@ -103,6 +104,7 @@ Thumbs.db
 # Docker
 # ===================
 .docker/
+get-docker.sh
 
 # ===================
 # Claude
