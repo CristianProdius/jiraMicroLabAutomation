@@ -48,6 +48,13 @@ class JiraFeedbackBot:
             self.application = Application.builder().token(self.token).build()
             self._setup_handlers()
 
+    async def initialize(self) -> None:
+        """Initialize the Telegram bot application for webhook mode."""
+        if self.bot:
+            await self.bot.initialize()
+        if self.application and not self.application.running:
+            await self.application.initialize()
+
     def _setup_handlers(self) -> None:
         """Set up command and callback handlers."""
         if not self.application:

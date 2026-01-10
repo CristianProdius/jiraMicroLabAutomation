@@ -22,9 +22,12 @@ async def lifespan(app: FastAPI):
     # Setup Telegram bot webhook if configured
     if settings.telegram_bot_token and settings.telegram_webhook_url:
         try:
-            from api.telegram.bot import setup_webhook
+            from api.telegram.bot import setup_webhook, get_bot
             await setup_webhook()
-            print("Telegram webhook configured")
+            # Initialize the bot application for webhook mode
+            bot = get_bot()
+            await bot.initialize()
+            print("Telegram webhook configured and application initialized")
         except Exception as e:
             print(f"Failed to setup Telegram webhook: {e}")
 
@@ -32,6 +35,19 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("Shutting down Jira Feedback API...")
+
+    # Cleanup Telegram bot application
+    if settings.telegram_bot_token:
+        try:
+            from api.telegram.bot import get_bot
+            bot = get_bot()
+            if bot.bot:
+                await bot.bot.shutdown()
+            if bot.application:
+                await bot.application.shutdown()
+            print("Telegram bot application shutdown complete")
+        except Exception as e:
+            print(f"Error during Telegram bot shutdown: {e}")
 
 
 # Create FastAPI application

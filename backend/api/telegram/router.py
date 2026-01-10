@@ -161,8 +161,10 @@ async def telegram_webhook(request: Request):
         await bot.process_update(update_data)
         return {"ok": True}
     except Exception as e:
-        # Log error but return 200 to avoid Telegram retries
+        # Log detailed error for debugging but return 200 to avoid Telegram retries
+        import traceback
         print(f"Error processing Telegram update: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         return {"ok": True}
 
 
