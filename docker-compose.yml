@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"  # Use 5433 externally to avoid conflict with local PostgreSQL
+      - "127.0.0.1:5433:5432"  # Localhost only - use SSH tunnel for remote access
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-jira_feedback}"]
       interval: 10s
@@ -24,7 +24,7 @@ services:
     image: redis:7-alpine
     container_name: jira-feedback-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"  # Localhost only - blocks public access
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
